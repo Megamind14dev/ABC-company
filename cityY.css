@@ -1,0 +1,77 @@
+/* Page background and font */
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f6f8;
+    color: #222;
+}
+
+/* Main title section */
+h1 {
+    text-align: center;
+    background-color: #003366;
+    color: white;
+    padding: 25px 10px;
+    margin: 0;
+}
+
+h1 p {
+    font-size: 16px;
+    margin-top: 10px;
+}
+
+/* About section */
+h2 {
+    background-color: #e6eef5;
+    padding: 20px;
+    margin: 20px;
+    border-left: 5px solid #003366;
+}
+
+h2 p {
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+/* Main functions section */
+h3 {
+    background-color: #ffffff;
+    padding: 20px;
+    margin: 20px;
+    border: 1px solid #ccc;
+}
+
+h3 p {
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+/* Navigation links */
+nav {
+    background-color: #003366;
+    padding: 18px;
+    text-align: center;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    font-weight: bold;
+    display: block;
+    margin: 8px 0;
+}
+
+nav a:hover {
+    text-decoration: underline;
+}
+
+/* Footer */
+footer {
+    background-color: #171c20;
+    color: white;
+    text-align: center;
+    padding: 15px;
+    margin-top: 20px;
+    font-size: 14px;
+}

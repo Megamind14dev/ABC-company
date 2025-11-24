@@ -1,0 +1,76 @@
+
+.logo{
+    height: auto;
+    width: 180px;
+    display: block;
+margin: 10px auto 0;
+}
+
+.head{
+color: aliceblue;
+font-size: 35px;
+font-weight: bold;
+text-decoration: underline;
+background-color: black;
+display: inline;
+margin-left: 400px;
+
+}
+
+.welcome{
+    color: #464242;
+    font-size: 25px;
+     margin-left: 5px;
+     padding: 0px ;
+
+}
+.roles{
+    font-weight: bold;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: larger;
+    font-style: inherit;
+    text-align: center;
+    text-decoration: underline;
+    color: blue;
+    margin: left 30px; 
+
+}
+.key{
+    color: rgb(98, 98, 211);
+    font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+    
+}
+
+nav ul{ 
+color: aqua;
+display: flex;
+gap: 30px;
+font-size: 25px;
+margin-left: 0px;
+
+
+
+}
+
+h4{
+color: rgb(95, 62, 22);
+font-size: 20px;
+text-align: left;
+background-color: aquamarine;
+display: inline;
+margin-left: 40px;
+
+
+}
+footer{
+    color: black;
+    text-align: center;
+    background-color: rgb(182, 180, 180);
+}
+
+body{
+    background-color: rgb(145, 137, 153);
+    
+}
+
+
