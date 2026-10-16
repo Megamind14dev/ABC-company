@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ABC Company Inventory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ Sign in ============ -->
+<div id="login" class="login">
+  <section class="login-art">
+    <div class="login-art-inner">
+      <div class="logo">
+        <span class="photo"><img src="ABC%20COMPANY/logo.png" alt="" onerror="this.parentNode.classList.add('no-img')"></span>
+        <span class="logo-text">ABC Company<small>Inventory management</small></span>
+      </div>
+      <div>
+        <h1>Every shelf, every site, one count.</h1>
+        <p>Replace paper logs and spreadsheets with live stock levels for Head Office, Plant Y and Plant Z.</p>
+        <div class="login-sites" style="margin-top:18px"><span>Head Office, City X</span><span>Plant Y</span><span>Plant Z</span></div>
+      </div>
+    </div>
+  </section>
+  <section class="login-form-wrap">
+    <form class="login-card" id="loginForm" autocomplete="on">
+      <h2>WELCOME TO ABC</h2>
+      <p class="muted">Use your ABC Company inventory account.</p>
+      <div class="field"><label for="u">Username</label><input id="u" name="username" autocomplete="username" required></div>
+      <div class="field"><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required></div>
+      <p class="error" id="loginErr" role="alert"></p>
+      <button class="btn" style="width:100%" type="submit">Sign in</button>
+      <div class="demo">
+
+        <div class="chips">
+          <button type="button" class="chip" data-act="fill" data-u="admin">Admin</button>
+          <button type="button" class="chip" data-act="fill" data-u="manager">Manager (Plant Y)</button>
+          <button type="button" class="chip" data-act="fill" data-u="staff">Staff (Plant Y)</button>
+          <button type="button" class="chip" data-act="fill" data-u="viewer">Viewer</button>
+        </div>
+      </div>
+    </form>
+  </section>
+</div>
+
+<!-- ============ App ============ -->
+<div id="app" class="app" hidden>
+  <aside class="side">
+    <div class="logo">
+      <span class="photo"><img src="ABC%20COMPANY/logo.png" alt="" onerror="this.parentNode.classList.add('no-img')"></span>
+      <span class="logo-text">ABC Company<small>Inventory</small></span>
+    </div>
+    <nav class="nav" id="nav" aria-label="Main"></nav>
+    <div class="side-foot">
+      <div><b id="meName"></b><small id="meRole"></small></div>
+      <button class="btn ghost small" data-act="logout">Sign out</button>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div class="scope"><span id="scopeLabel"></span><span class="role-badge" id="roleBadge"></span></div>
+      <div class="sync" id="sync"><i></i><span id="syncText">Synced</span></div>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<dialog id="dlg"></dialog>
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ================= Constants ================= */
+const KEY = 'abc_inventory_v2', SKEY = 'abc_session_v1';
+const LOCS = {
+  HO: { name: 'Head Office', sub: 'City X' },
+  PY: { name: 'Plant Y', sub: 'Manufacturing' },
+  PZ: { name: 'Plant Z', sub: 'Manufacturing' }
+};
+const ROLES = {
+  admin:   { label: 'Admin',   desc: 'Full access: all locations, users, items, approvals and reports.' },
+  manager: { label: 'Manager', desc: 'Manages one location: items, approvals, transactions and reports.' },
+  staff:   { label: 'Staff',   desc: 'Daily work at one location: records transactions, basic reports. Transfers and adjustments need approval.' },
+  viewer:  { label: 'Viewer',  desc: 'Read-only view of inventory levels and reports.' }
+};
+const TYPES = { receipt: 'Receipt', issue: 'Issue', transfer: 'Transfer', adjustment: 'Adjustment' };
+
+const $ = (s, r = document) => r.querySelector(s);
+
+/* ================= Data ================= */
+const day = 86400000, now = Date.now();
+function seed() {
+  const it = (sku, name, cat, unit, reorder, stock) => ({ sku, name, cat, unit, reorder, stock });
+  return {
+    items: [
+      it('STL-200','Cold-rolled steel sheet 2 mm','Raw material','sheet',150,{PY:420,PZ:96}),
+      it('STL-310','Steel coil 0.8 mm','Raw material','coil',20,{PY:38,PZ:14}),
+      it('FAS-M8','Hex bolt M8 x 40','Fasteners','box',60,{PY:140,PZ:220}),
+      it('FAS-N10','Hex nut M10','Fasteners','box',60,{PY:52,PZ:180}),
+      it('BRG-6204','Ball bearing 6204','Components','pc',80,{PY:310,PZ:45}),
+      it('MOT-3KW','Induction motor 3 kW','Components','pc',6,{PY:9,PZ:3}),
+      it('LUB-HV46','Hydraulic oil HV46, 20 L','Consumables','drum',10,{PY:24,PZ:0}),
+      it('PNT-GRY','Industrial paint, grey 5 L','Consumables','tin',25,{PY:60,PZ:71}),
+      it('PKG-C40','Shipping carton 40 x 30','Packaging','bundle',100,{HO:120,PY:260,PZ:35}),
+      it('PKG-TAP','Packing tape','Packaging','roll',50,{HO:85,PY:120,PZ:140}),
+      it('PPE-GLV','Cut-resistant gloves','Safety','pair',100,{HO:40,PY:310,PZ:275}),
+      it('PPE-HLM','Safety helmet','Safety','pc',30,{HO:12,PY:80,PZ:64}),
+      it('OFF-A4','A4 paper','Office','ream',40,{HO:18,PY:55,PZ:48}),
+      it('OFF-TNR','Printer toner','Office','pc',6,{HO:9,PY:4,PZ:7}),
+      it('FG-PRS1','Hydraulic press unit, assembled','Finished goods','unit',4,{PY:7}),
+      it('FG-CNV2','Conveyor module 2 m','Finished goods','pc',5,{PY:11,PZ:2})
+    ],
+    tx: [
+      { id: 1, ts: now - 6*3600e3, type:'receipt', sku:'STL-200', loc:'PY', qty:200, note:'PO 4471 from supplier', by:'staff', status:'approved' },
+      { id: 2, ts: now - 9*3600e3, type:'issue', sku:'BRG-6204', loc:'PZ', qty:35, note:'Line 2 assembly', by:'staff', status:'approved' },
+      { id: 3, ts: now - 1*day, type:'receipt', sku:'OFF-A4', loc:'HO', qty:20, note:'Monthly office order', by:'hq', status:'approved' },
+      { id: 4, ts: now - 1*day - 3600e3, type:'transfer', sku:'PKG-C40', loc:'PY', to:'PZ', qty:50, note:'Top up Plant Z', by:'manager', status:'approved', approvedBy:'manager' },
+      { id: 5, ts: now - 2*day, type:'issue', sku:'LUB-HV46', loc:'PZ', qty:6, note:'Press maintenance', by:'staff', status:'approved' },
+      { id: 6, ts: now - 3*day, type:'adjustment', sku:'PPE-GLV', loc:'HO', qty:40, before:44, after:40, delta:-4, note:'Cycle count', by:'hq', status:'approved', approvedBy:'hq' },
+      { id: 7, ts: now - 2*3600e3, type:'transfer', sku:'BRG-6204', loc:'PY', to:'PZ', qty:30, note:'Plant Z is below reorder level', by:'staff', status:'pending' },
+      { id: 8, ts: now - 1*3600e3, type:'adjustment', sku:'OFF-TNR', loc:'PY', qty:3, note:'Counted 3 on the shelf', by:'staff', status:'pending' }
+    ],
+    users: [
+      { username:'admin', password:'admin123', name:'Clare Obuya', role:'admin', loc:'ALL' },
+      { username:'manager', password:'manager123', name:'Flynne Fisher', role:'manager', loc:'PY' },
+      { username:'hq', password:'hq123', name:'Sammy Basetwo', role:'manager', loc:'HO' },
+      { username:'staff', password:'staff123', name:'Dan Mwangi', role:'staff', loc:'PY' },
+      { username:'viewer', password:'viewer123', name:'Eve Njeri', role:'viewer', loc:'ALL' }
+    ],
+    nextTx: 9,
+    synced: now
+  };
+}
+function load() {
+  try { const r = localStorage.getItem(KEY); if (r) return JSON.parse(r); } catch (e) {}
+  return null;
+}
+function save() {
+  db.synced = Date.now();
+  try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('Could not save changes in this browser.', 'err'); }
+  updateSync();
+}
+let db = load() || seed();
+/* Keep saved data, but apply the updated display names */
+[['admin','Clare Obuya'],['manager','Flynne Fisher'],['hq','Sammy Basetwo']].forEach(([u, n]) => { const x = db.users.find(y => y.username === u); if (x) x.name = n; });
+if (!localStorage.getItem(KEY)) save();
+
+/* ================= Helpers ================= */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const fmtDate = ts => new Date(ts).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+const fmtN = n => Number(n).toLocaleString('en-US');
+const catKey = c => /finished/i.test(c) ? 'green' : /packag/i.test(c) ? 'orange' : 'blue';
+const catTag = c => `<span class="cat ${catKey(c)}">${esc(c)}</span>`;
+const item = sku => db.items.find(i => i.sku === sku);
+const userBy = u => db.users.find(x => x.username === u);
+const nameOf = u => (userBy(u) || {}).name || u;
+
+let me = null;
+try { const s = localStorage.getItem(SKEY); if (s) me = userBy(s) || null; } catch (e) {}
+
+const myLocs = () => me.loc === 'ALL' ? Object.keys(LOCS) : [me.loc];
+const isAdmin = () => me.role === 'admin';
+const canTransact = () => ['admin','manager','staff'].includes(me.role);
+const canApprove = t => me.role === 'admin' || (me.role === 'manager' && t.loc === me.loc);
+const canManageItems = () => ['admin','manager'].includes(me.role);
+
+function status(i, loc) {
+  const q = i.stock[loc];
+  if (q === undefined) return null;
+  return q <= 0 ? 'out' : q <= i.reorder ? 'low' : 'ok';
+}
+const pill = (s, text) => `<span class="pill ${s}">${text || ({ok:'In stock',low:'Low',out:'Out of stock',approved:'Approved',pending:'Awaiting approval',rejected:'Rejected'}[s])}</span>`;
+function alerts() {
+  const out = [];
+  db.items.forEach(i => myLocs().forEach(l => {
+    const s = status(i, l);
+    if (s === 'low' || s === 'out') out.push({ i, loc: l, s, qty: i.stock[l], suggest: Math.max(i.reorder * 2 - i.stock[l], i.reorder) });
+  }));
+  return out.sort((a, b) => (a.s === 'out' ? 0 : 1) - (b.s === 'out' ? 0 : 1) || a.qty - b.qty);
+}
+function pending() { return db.tx.filter(t => t.status === 'pending' && canApprove(t)); }
+function visibleTx() { return db.tx.filter(t => myLocs().includes(t.loc) || (t.to && myLocs().includes(t.to))); }
+function qtyText(t) {
+  const u = (item(t.sku) || {}).unit || '';
+  if (t.type === 'receipt') return `+${fmtN(t.qty)} ${u}`;
+  if (t.type === 'issue') return `\u2212${fmtN(t.qty)} ${u}`;
+  if (t.type === 'transfer') return `${fmtN(t.qty)} ${u} to ${LOCS[t.to].name}`;
+  if (t.status === 'approved' && t.delta !== undefined) return `Counted ${fmtN(t.qty)} (${t.delta >= 0 ? '+' : '\u2212'}${fmtN(Math.abs(t.delta))})`;
+  return `Counted ${fmtN(t.qty)}`;
+}
+
+/* ================= Transactions logic ================= */
+function applyTx(t) {
+  const i = item(t.sku); if (!i) return 'Item not found.';
+  const have = i.stock[t.loc];
+  if (t.type === 'receipt') { i.stock[t.loc] = (have || 0) + t.qty; return null; }
+  if (have === undefined) return `${i.name} is not stocked at ${LOCS[t.loc].name}.`;
+  if (t.type === 'issue') {
+    if (t.qty > have) return `Only ${fmtN(have)} ${i.unit} on hand at ${LOCS[t.loc].name}.`;
+    i.stock[t.loc] = have - t.qty; return null;
+  }
+  if (t.type === 'transfer') {
+    if (t.qty > have) return `Only ${fmtN(have)} ${i.unit} on hand at ${LOCS[t.loc].name}.`;
+    i.stock[t.loc] = have - t.qty;
+    i.stock[t.to] = (i.stock[t.to] || 0) + t.qty; return null;
+  }
+  if (t.type === 'adjustment') {
+    t.before = have; t.after = t.qty; t.delta = t.qty - have; i.stock[t.loc] = t.qty; return null;
+  }
+  return 'Unknown transaction type.';
+}
+function createTx(d) {
+  if (!d.sku) return 'Choose an item.';
+  if (!(d.qty >= 0) || (d.type !== 'adjustment' && d.qty <= 0)) return 'Enter a quantity greater than zero.';
+  if (d.type === 'transfer' && d.to === d.loc) return 'Choose a different destination.';
+  const needsApproval = me.role === 'staff' && (d.type === 'transfer' || d.type === 'adjustment');
+  const t = { id: db.nextTx++, ts: Date.now(), ...d, by: me.username, status: needsApproval ? 'pending' : 'approved' };
+  if (!needsApproval) {
+    const err = applyTx(t); if (err) { db.nextTx--; return err; }
+    if (t.type === 'transfer' || t.type === 'adjustment') t.approvedBy = me.username;
+  } else {
+    const i = item(d.sku);
+    if (i.stock[d.loc] === undefined) { db.nextTx--; return `${i.name} is not stocked at ${LOCS[d.loc].name}.`; }
+  }
+  db.tx.unshift(t); save();
+  return { ok: true, pending: needsApproval };
+}
+
+/* ================= Views ================= */
+const V = {};
+let rtab = 'summary';
+let rf = { from: '', to: '', type: '' };
+let invF = { q: '', cat: '' };
+let txF = { type: '', status: '' };
+let prefill = null;
+
+V.dashboard = () => {
+  const locs = myLocs(), al = alerts(), pend = pending();
+  const todayStart = new Date().setHours(0,0,0,0);
+  const sites = locs.map(l => {
+    const items = db.items.filter(i => l in i.stock);
+    const c = { ok: 0, low: 0, out: 0 };
+    items.forEach(i => c[status(i, l)]++);
+    const units = items.reduce((s, i) => s + i.stock[l], 0);
+    return `<article class="panel site">
+      <div class="site-head"><h2>${LOCS[l].name}</h2><small>${LOCS[l].sub}</small></div>
+      <div class="site-body">
+        <div class="site-stats"><div><b class="num">${fmtN(units)}</b><span>units on hand</span></div><div><b class="num">${items.length}</b><span>items stocked</span></div></div>
+        <div class="shelf" aria-label="Stock health of each item at ${LOCS[l].name}">${items.map(i => `<i class="cell ${status(i, l)}" title="${esc(i.name)}: ${fmtN(i.stock[l])} ${i.unit}"></i>`).join('')}</div>
+        <div class="shelf-key"><span>${c.ok} healthy</span><span class="l">${c.low} low</span><span class="o">${c.out} out</span></div>
+      </div></article>`;
+  }).join('');
+  const recent = visibleTx().slice(0, 6).map(t => `<li><div><b>${esc((item(t.sku)||{}).name)}</b><small>${TYPES[t.type]} at ${LOCS[t.loc].name} \u00b7 ${fmtDate(t.ts)}</small></div><div class="right">${esc(qtyText(t))}<br>${t.status !== 'approved' ? pill(t.status) : ''}</div></li>`).join('');
+  const al6 = al.slice(0, 6).map(a => `<li><div><b>${esc(a.i.name)}</b><small>${LOCS[a.loc].name} \u00b7 reorder at ${fmtN(a.i.reorder)}</small></div><div class="right"><span class="q ${a.s}">${fmtN(a.qty)} ${a.i.unit}</span><br>${pill(a.s)}</div></li>`).join('');
+  return `
+    <div class="page-head"><div><h1>Stock overview</h1><p>${me.loc === 'ALL' ? 'All three locations' : LOCS[me.loc].name}, updated live.</p></div></div>
+    <div class="panel strip">
+      <div class="${al.length ? 'warn' : ''}"><b class="num">${al.length}</b><span>items at or below reorder level</span></div>
+      <div class="${pend.length ? 'warn' : ''}"><b class="num">${pend.length}</b><span>${canApprove({loc:me.loc}) || isAdmin() ? 'transactions to approve' : 'awaiting approval'}</span></div>
+      <div><b class="num">${visibleTx().filter(t => t.ts >= todayStart).length}</b><span>transactions today</span></div>
+      <div class="${al.filter(a => a.s === 'out').length ? 'bad' : ''}"><b class="num">${al.filter(a => a.s === 'out').length}</b><span>out of stock</span></div>
+    </div>
+    <div class="sites">${sites}</div>
+    <div class="cols">
+      <section class="panel"><div class="panel-head"><h2>Needs reordering</h2><a href="#/alerts">See all</a></div>
+        ${al6 ? `<ul class="list">${al6}</ul>` : `<div class="empty"><b>Everything is above its reorder level.</b>New alerts will show up here.</div>`}</section>
+      <section class="panel"><div class="panel-head"><h2>Recent transactions</h2>${me.role !== 'viewer' ? '<a href="#/transactions">See all</a>' : ''}</div>
+        ${recent ? `<ul class="list">${recent}</ul>` : `<div class="empty"><b>No transactions yet.</b>Receipts, issues and transfers appear here.</div>`}</section>
+    </div>`;
+};
+
+V.inventory = () => {
+  const locs = myLocs();
+  const cats = [...new Set(db.items.map(i => i.cat))].sort();
+  const rows = db.items.filter(i => locs.some(l => l in i.stock))
+    .filter(i => !invF.cat || i.cat === invF.cat)
+    .filter(i => !invF.q || (i.name + i.sku).toLowerCase().includes(invF.q.toLowerCase()));
+  const body = rows.map(i => {
+    const sts = locs.map(l => status(i, l)).filter(Boolean);
+    const worst = sts.includes('out') ? 'out' : sts.includes('low') ? 'low' : 'ok';
+    const total = locs.reduce((s, l) => s + (i.stock[l] || 0), 0);
+    return `<tr><td><b>${esc(i.name)}</b><small>${esc(i.sku)} \u00b7 ${i.unit}</small></td><td>${catTag(i.cat)}</td>
+      ${locs.map(l => { const s = status(i, l); return `<td class="right num">${s ? `<span class="q ${s}">${fmtN(i.stock[l])}</span>` : '<span class="muted">\u2013</span>'}</td>`; }).join('')}
+      <td class="right num"><b>${fmtN(total)}</b></td><td class="right num">${fmtN(i.reorder)}</td><td>${pill(worst)}</td>
+      ${canManageItems() ? `<td><button class="btn ghost small" data-act="edit-item" data-sku="${esc(i.sku)}">Edit</button></td>` : ''}</tr>`;
+  }).join('');
+  return `
+    <div class="page-head"><div><h1>Inventory</h1><p>Current stock by item and location. Quantities in yellow or red are at or below the reorder level.</p></div>
+      <div class="actions">${canManageItems() ? '<button class="btn" data-act="add-item">Add item</button>' : ''}</div></div>
+    <div class="panel legend" aria-label="Colour guide">
+      <div><b>Stock level</b><span class="pill ok">In stock</span><span class="pill low">Low, near reorder level</span><span class="pill out">Critical or out</span></div>
+      <div><b>Category</b><span class="cat blue">Raw material and general storage</span><span class="cat green">Finished goods</span><span class="cat orange">Packaging</span></div>
+    </div>
+    <section class="panel">
+      <div class="filters">
+        <input type="search" id="invQ" placeholder="Search by name or SKU" value="${esc(invF.q)}" aria-label="Search items">
+        <select id="invCat" aria-label="Category"><option value="">All categories</option>${cats.map(c => `<option ${invF.cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Item</th><th>Category</th>${locs.map(l => `<th class="right">${LOCS[l].name}</th>`).join('')}<th class="right">Total</th><th class="right">Reorder at</th><th>Status</th>${canManageItems() ? '<th></th>' : ''}</tr></thead>
+      <tbody>${body || ''}</tbody></table>
+      ${rows.length ? '' : '<div class="empty"><b>No items match.</b>Clear the search or choose another category.</div>'}</div>
+    </section>`;
+};
+
+V.transactions = () => {
+  const rows = visibleTx().filter(t => !txF.type || t.type === txF.type).filter(t => !txF.status || t.status === txF.status);
+  const body = rows.map(t => {
+    const it = item(t.sku) || { name: t.sku };
+    return `<tr><td>${fmtDate(t.ts)}</td><td class="type">${TYPES[t.type]}</td><td><b>${esc(it.name)}</b><small>${esc(t.sku)}${t.note ? ' \u00b7 ' + esc(t.note) : ''}</small></td>
+      <td>${LOCS[t.loc].name}</td><td class="num">${esc(qtyText(t))}</td><td>${esc(nameOf(t.by))}</td><td>${pill(t.status)}</td>
+      <td>${t.status === 'pending' && canApprove(t) ? `<button class="btn small" data-act="approve" data-id="${t.id}">Approve</button> <button class="btn danger small" data-act="reject" data-id="${t.id}">Reject</button>` : ''}</td></tr>`;
+  }).join('');
+  const locOpts = (isAdmin() ? Object.keys(LOCS) : [me.loc]);
+  const pf = prefill || {}; prefill = null;
+  const form = canTransact() ? `
+    <form class="panel" id="txForm"><div class="panel-head"><h2>Record a transaction</h2></div><div class="panel-body">
+      <div class="field"><label for="tType">Type</label><select id="tType" name="type">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${pf.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+      <div class="field"><label for="tLoc">Location</label><select id="tLoc" name="loc" ${locOpts.length === 1 ? 'disabled' : ''}>${locOpts.map(l => `<option value="${l}" ${pf.loc === l ? 'selected' : ''}>${LOCS[l].name}</option>`).join('')}</select></div>
+      <div class="field" id="toWrap" hidden><label for="tTo">Send to</label><select id="tTo" name="to"></select></div>
+      <div class="field"><label for="tSku">Item</label><select id="tSku" name="sku">${db.items.map(i => `<option value="${esc(i.sku)}" ${pf.sku === i.sku ? 'selected' : ''}>${esc(i.name)} (${esc(i.sku)})</option>`).join('')}</select><p class="hint" id="tHint"></p></div>
+      <div class="field"><label for="tQty" id="tQtyLabel">Quantity</label><input id="tQty" name="qty" type="number" min="0" step="1" required value="${pf.qty || ''}"></div>
+      <div class="field"><label for="tNote">Reference or note</label><input id="tNote" name="note" placeholder="PO number, job, reason"></div>
+      <p class="error" id="tErr" role="alert"></p>
+      <button class="btn" type="submit" style="width:100%">Record transaction</button>
+      ${me.role === 'staff' ? '<p class="hint" style="margin-top:8px">Transfers and adjustments are sent to your manager for approval.</p>' : ''}
+    </div></form>` : '';
+  return `
+    <div class="page-head"><div><h1>Transactions</h1><p>Receipts, issues, transfers and adjustments.</p></div></div>
+    <div class="${canTransact() ? 'split' : ''}">${form}
+    <section class="panel">
+      <div class="filters">
+        <select id="txType" aria-label="Type"><option value="">All types</option>${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${txF.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <select id="txStatus" aria-label="Status"><option value="">Any status</option><option value="pending" ${txF.status === 'pending' ? 'selected' : ''}>Awaiting approval</option><option value="approved" ${txF.status === 'approved' ? 'selected' : ''}>Approved</option><option value="rejected" ${txF.status === 'rejected' ? 'selected' : ''}>Rejected</option></select>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>When</th><th>Type</th><th>Item</th><th>Location</th><th>Quantity</th><th>By</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table>
+      ${rows.length ? '' : '<div class="empty"><b>No transactions found.</b>Change the filters or record a new one.</div>'}</div>
+    </section></div>`;
+};
+
+V.alerts = () => {
+  const al = alerts();
+  const body = al.map(a => `<tr><td><b>${esc(a.i.name)}</b><small>${esc(a.i.sku)}</small></td><td>${LOCS[a.loc].name}</td>
+    <td class="right num"><span class="q ${a.s}">${fmtN(a.qty)}</span> ${a.i.unit}</td><td class="right num">${fmtN(a.i.reorder)}</td>
+    <td class="right num">${fmtN(a.suggest)} ${a.i.unit}</td><td>${pill(a.s)}</td>
+    <td>${canTransact() && (isAdmin() || a.loc === me.loc) ? `<button class="btn ghost small" data-act="reorder" data-sku="${esc(a.i.sku)}" data-loc="${a.loc}" data-qty="${a.suggest}">Record receipt</button>` : ''}</td></tr>`).join('');
+  return `
+    <div class="page-head"><div><h1>Alerts</h1><p>Items at or below their reorder level. The suggested order brings stock back to twice the reorder level.</p></div></div>
+    <section class="panel">${al.length ? `<div class="table-wrap"><table><thead><tr><th>Item</th><th>Location</th><th class="right">On hand</th><th class="right">Reorder at</th><th class="right">Suggested order</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
+      : '<div class="empty"><b>No low stock right now.</b>When an item drops to its reorder level it will be listed here.</div>'}</section>`;
+};
+
+function reportData() {
+  const locs = myLocs();
+  if (rtab === 'summary') {
+    const cats = [...new Set(db.items.map(i => i.cat))].sort();
+    return { head: ['Category', 'Items', ...locs.map(l => LOCS[l].name + ' units'), 'Total units', 'Below reorder level'],
+      rows: cats.map(c => {
+        const its = db.items.filter(i => i.cat === c && locs.some(l => l in i.stock));
+        const per = locs.map(l => its.reduce((s, i) => s + (i.stock[l] || 0), 0));
+        const low = its.reduce((s, i) => s + locs.filter(l => ['low','out'].includes(status(i, l))).length, 0);
+        return [c, its.length, ...per, per.reduce((a, b) => a + b, 0), low];
+      }).filter(r => r[1] > 0) };
+  }
+  if (rtab === 'low') {
+    return { head: ['Item', 'SKU', 'Location', 'On hand', 'Reorder level', 'Shortfall', 'Suggested order'],
+      rows: alerts().map(a => [a.i.name, a.i.sku, LOCS[a.loc].name, a.qty, a.i.reorder, Math.max(a.i.reorder - a.qty, 0), a.suggest]) };
+  }
+  const from = rf.from ? new Date(rf.from).setHours(0,0,0,0) : 0, to = rf.to ? new Date(rf.to).setHours(23,59,59,999) : Infinity;
+  return { head: ['Date', 'Type', 'Item', 'SKU', 'Location', 'Quantity', 'Status', 'By', 'Note'],
+    rows: visibleTx().filter(t => t.ts >= from && t.ts <= to && (!rf.type || t.type === rf.type))
+      .map(t => [fmtDate(t.ts), TYPES[t.type], (item(t.sku) || {}).name || t.sku, t.sku, LOCS[t.loc].name, qtyText(t), { approved: 'Approved', pending: 'Awaiting approval', rejected: 'Rejected' }[t.status], nameOf(t.by), t.note || '']) };
+}
+V.reports = () => {
+  const d = reportData();
+  const tabs = [['summary', 'Inventory summary'], ['low', 'Low stock'], ['history', 'Transaction history']];
+  const numeric = c => rtab !== 'history' && !['Category','Item','SKU','Location'].includes(d.head[c]);
+  return `
+    <div class="page-head"><div><h1>Reports</h1><p>${me.loc === 'ALL' ? 'Covers all locations.' : 'Covers ' + LOCS[me.loc].name + '.'}</p></div>
+      <div class="actions"><button class="btn ghost" data-act="export">Download CSV</button><button class="btn ghost" data-act="print">Print</button></div></div>
+    <div class="tabs" role="tablist">${tabs.map(([k, v]) => `<button role="tab" aria-selected="${rtab === k}" data-act="tab" data-tab="${k}">${v}</button>`).join('')}</div>
+    <section class="panel">
+      ${rtab === 'history' ? `<div class="filters"><div><label for="rfFrom">From</label><input type="date" id="rfFrom" value="${rf.from}"></div><div><label for="rfTo">To</label><input type="date" id="rfTo" value="${rf.to}"></div><div><label for="rfType">Type</label><select id="rfType"><option value="">All types</option>${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${rf.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div></div>` : ''}
+      <div class="table-wrap"><table><thead><tr>${d.head.map((h, c) => `<th class="${numeric(c) ? 'right' : ''}">${h}</th>`).join('')}</tr></thead>
+      <tbody>${d.rows.map(r => `<tr>${r.map((v, c) => `<td class="${numeric(c) ? 'right num' : ''}">${esc(typeof v === 'number' ? fmtN(v) : v)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      ${d.rows.length ? '' : '<div class="empty"><b>Nothing to report.</b>Try a wider date range or another type.</div>'}</div>
+    </section>`;
+};
+
+V.users = () => `
+  <div class="page-head"><div><h1>Users and access</h1><p>Create accounts and set what each person can do.</p></div><div class="actions"><button class="btn" data-act="add-user">Add user</button></div></div>
+  <section class="panel" style="margin-bottom:18px"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Location</th><th></th></tr></thead><tbody>
+    ${db.users.map(u => `<tr><td><b>${esc(u.name)}</b></td><td>${esc(u.username)}</td><td>${ROLES[u.role].label}</td><td>${u.loc === 'ALL' ? 'All locations' : LOCS[u.loc].name}</td>
+      <td>${u.username !== me.username ? `<button class="btn danger small" data-act="del-user" data-u="${esc(u.username)}">Remove</button>` : '<span class="muted">You</span>'}</td></tr>`).join('')}
+  </tbody></table></div></section>
+  <section class="panel"><div class="panel-head"><h2>What each role can do</h2></div><div class="panel-body roles">
+    ${Object.values(ROLES).map(r => `<div><b>${r.label}</b>${r.desc}</div>`).join('')}</div></section>`;
+
+/* ================= Shell & routing ================= */
+function navItems() {
+  const n = [['dashboard', 'Overview'], ['inventory', 'Inventory']];
+  if (me.role !== 'viewer') n.push(['transactions', 'Transactions']);
+  n.push(['alerts', 'Alerts'], ['reports', 'Reports']);
+  if (isAdmin()) n.push(['users', 'Users']);
+  return n;
+}
+function route() { const r = (location.hash.replace('#/', '') || 'dashboard'); return navItems().some(n => n[0] === r) ? r : 'dashboard'; }
+function render() {
+  if (!me) return;
+  const r = route();
+  const al = alerts().length, pe = pending().length;
+  $('#nav').innerHTML = navItems().map(([k, v]) => `<a href="#/${k}" ${k === r ? 'aria-current="page"' : ''}>${v}${k === 'alerts' && al ? `<span class="count red">${al}</span>` : ''}${k === 'transactions' && pe ? `<span class="count">${pe}</span>` : ''}</a>`).join('');
+  $('#view').innerHTML = V[r]();
+  document.title = `${navItems().find(n => n[0] === r)[1]} \u00b7 ABC Company Inventory`;
+  if (r === 'transactions' && canTransact()) syncTxForm();
+}
+function showApp() {
+  $('#login').hidden = !!me; $('#app').hidden = !me;
+  if (!me) return;
+  $('#meName').textContent = me.name; $('#meRole').textContent = ROLES[me.role].label + ' \u00b7 ' + (me.loc === 'ALL' ? 'All locations' : LOCS[me.loc].name);
+  $('#roleBadge').textContent = ROLES[me.role].label;
+  $('#scopeLabel').textContent = me.loc === 'ALL' ? 'All locations' : LOCS[me.loc].name;
+  updateSync(); render();
+}
+function updateSync(flash) {
+  const el = $('#sync'); if (!el) return;
+  const off = !navigator.onLine;
+  el.classList.toggle('offline', off); el.classList.toggle('flash', !!flash);
+  $('#syncText').textContent = off ? 'Offline. Changes are saved on this device.' : 'Synced at ' + new Date(db.synced).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+function toast(msg, kind) {
+  const t = document.createElement('div'); t.className = 'toast ' + (kind || ''); t.textContent = msg;
+  $('#toasts').appendChild(t); setTimeout(() => t.remove(), 4200);
+}
+
+/* Transaction form behaviour */
+function syncTxForm() {
+  const f = $('#txForm'); if (!f) return;
+  const type = f.type.value, loc = f.loc.value, sku = f.sku.value, i = item(sku);
+  $('#toWrap').hidden = type !== 'transfer';
+  if (type === 'transfer') {
+    const cur = f.to.value;
+    f.to.innerHTML = Object.keys(LOCS).filter(l => l !== loc).map(l => `<option value="${l}" ${l === cur ? 'selected' : ''}>${LOCS[l].name}</option>`).join('');
+  }
+  $('#tQtyLabel').textContent = type === 'adjustment' ? 'Counted quantity' : 'Quantity';
+  const have = i && i.stock[loc];
+  $('#tHint').textContent = have === undefined ? 'Not stocked at this location yet.' : `On hand at ${LOCS[loc].name}: ${fmtN(have)} ${i.unit}. Reorder at ${fmtN(i.reorder)}.`;
+}
+
+/* Dialogs */
+function openDlg(html) { const d = $('#dlg'); d.innerHTML = `<div class="dlg">${html}</div>`; d.showModal(); }
+const closeDlg = () => $('#dlg').close();
+function itemDialog(i) {
+  const edit = !!i, locs = myLocs();
+  openDlg(`<h2>${edit ? 'Edit item' : 'Add item'}</h2><form id="itemForm" data-sku="${edit ? esc(i.sku) : ''}">
+    <div class="grid2"><div class="field"><label for="iSku">SKU</label><input id="iSku" name="sku" required value="${edit ? esc(i.sku) : ''}" ${edit ? 'readonly' : ''}></div>
+    <div class="field"><label for="iUnit">Unit</label><input id="iUnit" name="unit" required placeholder="pc, box, drum" value="${edit ? esc(i.unit) : ''}"></div></div>
+    <div class="field"><label for="iName">Name</label><input id="iName" name="name" required value="${edit ? esc(i.name) : ''}"></div>
+    <div class="grid2"><div class="field"><label for="iCat">Category</label><input id="iCat" name="cat" required list="cats" value="${edit ? esc(i.cat) : ''}"><datalist id="cats">${[...new Set(db.items.map(x => x.cat))].map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+    <div class="field"><label for="iRe">Reorder level</label><input id="iRe" name="reorder" type="number" min="0" required value="${edit ? i.reorder : ''}"></div></div>
+    ${edit ? '' : `<div class="grid2"><div class="field"><label for="iLoc">Stocked at</label><select id="iLoc" name="loc">${locs.map(l => `<option value="${l}">${LOCS[l].name}</option>`).join('')}</select></div>
+    <div class="field"><label for="iOpen">Opening quantity</label><input id="iOpen" name="open" type="number" min="0" value="0"></div></div>`}
+    <p class="error" id="iErr" role="alert"></p>
+    <div class="dlg-actions"><button type="button" class="btn ghost" data-act="close">Cancel</button><button class="btn">${edit ? 'Save changes' : 'Add item'}</button></div></form>`);
+}
+function userDialog() {
+  openDlg(`<h2>Add user</h2><form id="userForm">
+    <div class="field"><label for="nName">Full name</label><input id="nName" name="name" required></div>
+    <div class="grid2"><div class="field"><label for="nUser">Username</label><input id="nUser" name="username" required></div>
+    <div class="field"><label for="nPass">Password</label><input id="nPass" name="password" type="password" minlength="6" required></div></div>
+    <div class="grid2"><div class="field"><label for="nRole">Role</label><select id="nRole" name="role">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select></div>
+    <div class="field"><label for="nLoc">Location</label><select id="nLoc" name="loc"><option value="ALL">All locations</option>${Object.entries(LOCS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select></div></div>
+    <p class="hint">Managers and staff should be tied to one location.</p>
+    <p class="error" id="nErr" role="alert"></p>
+    <div class="dlg-actions"><button type="button" class="btn ghost" data-act="close">Cancel</button><button class="btn">Add user</button></div></form>`);
+}
+
+/* ================= Events ================= */
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act;
+  if (a === 'fill') { $('#u').value = b.dataset.u; $('#p').value = b.dataset.u + '123'; $('#p').focus(); }
+  else if (a === 'logout') { me = null; try { localStorage.removeItem(SKEY); } catch (x) {} location.hash = ''; showApp(); }
+  else if (a === 'close') closeDlg();
+  else if (a === 'tab') { rtab = b.dataset.tab; render(); }
+  else if (a === 'add-item') itemDialog();
+  else if (a === 'edit-item') itemDialog(item(b.dataset.sku));
+  else if (a === 'add-user') userDialog();
+  else if (a === 'del-user') {
+    if (confirm('Remove this user? They will no longer be able to sign in.')) { db.users = db.users.filter(u => u.username !== b.dataset.u); save(); render(); toast('User removed.', 'ok'); }
+  }
+  else if (a === 'approve' || a === 'reject') {
+    const t = db.tx.find(x => x.id === +b.dataset.id); if (!t || !canApprove(t)) return;
+    if (a === 'approve') { const err = applyTx(t); if (err) return toast(err, 'err'); t.status = 'approved'; toast('Approved. Stock updated.', 'ok'); }
+    else { t.status = 'rejected'; toast('Rejected. Stock unchanged.'); }
+    t.approvedBy = me.username; save(); render();
+  }
+  else if (a === 'reorder') { prefill = { type: 'receipt', sku: b.dataset.sku, loc: b.dataset.loc, qty: b.dataset.qty }; location.hash = '#/transactions'; }
+  else if (a === 'print') window.print();
+  else if (a === 'export') {
+    const d = reportData();
+    const csv = [d.head, ...d.rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const l = document.createElement('a'); l.href = url; l.download = `abc-${rtab}-report.csv`; l.click(); URL.revokeObjectURL(url);
+    toast('Report downloaded.', 'ok');
+  }
+});
+
+document.addEventListener('input', e => {
+  if (e.target.id === 'invQ') { invF.q = e.target.value; const pos = e.target.selectionStart; render(); const q = $('#invQ'); q.focus(); q.setSelectionRange(pos, pos); }
+});
+document.addEventListener('change', e => {
+  const id = e.target.id;
+  if (id === 'invCat') { invF.cat = e.target.value; render(); }
+  else if (id === 'txType') { txF.type = e.target.value; render(); }
+  else if (id === 'txStatus') { txF.status = e.target.value; render(); }
+  else if (id === 'rfFrom') { rf.from = e.target.value; render(); }
+  else if (id === 'rfTo') { rf.to = e.target.value; render(); }
+  else if (id === 'rfType') { rf.type = e.target.value; render(); }
+  else if (['tType', 'tLoc', 'tSku'].includes(id)) syncTxForm();
+});
+
+document.addEventListener('submit', e => {
+  const f = e.target; e.preventDefault();
+  if (f.id === 'loginForm') {
+    const u = db.users.find(x => x.username === f.username.value.trim().toLowerCase() && x.password === f.password.value);
+    if (!u) { $('#loginErr').textContent = 'Username or password is not right. Check both and try again.'; return; }
+    me = u; try { localStorage.setItem(SKEY, u.username); } catch (x) {}
+    $('#loginErr').textContent = ''; f.reset(); location.hash = '#/dashboard'; showApp();
+  }
+  else if (f.id === 'txForm') {
+    const d = { type: f.type.value, loc: f.loc.value, sku: f.sku.value, qty: parseInt(f.qty.value, 10), note: f.note.value.trim() };
+    if (d.type === 'transfer') d.to = f.to.value;
+    const res = createTx(d);
+    if (typeof res === 'string') { $('#tErr').textContent = res; return; }
+    toast(res.pending ? 'Sent to your manager for approval.' : 'Transaction recorded. Stock updated.', 'ok');
+    render();
+  }
+  else if (f.id === 'itemForm') {
+    const g = n => f.elements[n].value.trim(), edit = f.dataset.sku;
+    if (edit) {
+      const i = item(edit); i.name = g('name'); i.unit = g('unit'); i.cat = g('cat'); i.reorder = parseInt(g('reorder'), 10);
+      toast('Item updated.', 'ok');
+    } else {
+      const sku = g('sku').toUpperCase();
+      if (item(sku)) { $('#iErr').textContent = 'That SKU already exists. Use a different SKU.'; return; }
+      db.items.push({ sku, name: g('name'), unit: g('unit'), cat: g('cat'), reorder: parseInt(g('reorder'), 10), stock: { [g('loc')]: parseInt(g('open'), 10) || 0 } });
+      toast('Item added.', 'ok');
+    }
+    save(); closeDlg(); render();
+  }
+  else if (f.id === 'userForm') {
+    const g = n => f.elements[n].value.trim(), un = g('username').toLowerCase();
+    if (userBy(un)) { $('#nErr').textContent = 'That username is taken. Choose another.'; return; }
+    const role = g('role'), loc = g('loc');
+    if ((role === 'manager' || role === 'staff') && loc === 'ALL') { $('#nErr').textContent = 'Choose one location for a manager or staff member.'; return; }
+    db.users.push({ username: un, password: f.elements.password.value, name: g('name'), role, loc: role === 'admin' ? 'ALL' : loc });
+    save(); closeDlg(); render(); toast('User added.', 'ok');
+  }
+});
+
+window.addEventListener('hashchange', () => { if (me) { render(); $('#view').focus({ preventScroll: true }); window.scrollTo(0, 0); } });
+window.addEventListener('online', () => updateSync());
+window.addEventListener('offline', () => updateSync());
+/* Another tab or location saved new data: pick it up */
+window.addEventListener('storage', e => {
+  if (e.key === KEY && e.newValue) {
+    db = JSON.parse(e.newValue);
+    if (me) me = userBy(me.username) || null;
+    showApp(); if (me) { updateSync(true); toast('Stock updated from another session.'); }
+  }
+});
+
+showApp();
+})();
+</script>
+</body>
+</html>
